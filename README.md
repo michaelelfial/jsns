@@ -1,0 +1,2 @@
+# jsns
+Javascript namespaces (JSNS)
