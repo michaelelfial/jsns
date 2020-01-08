@@ -1,5 +1,15 @@
 # Javascript namespaces (JSNS)
 
+Maintains a tree of Javacript code closures/"modules" in memory structured as a namespaces tree. The namespaces can be accessed by namespace name, extended (until sealed), namespaces can be added to expand the namespace tree and so on.
+
+In contrast to the traditional Javascript module implementations/simulations this is a similar isolation technique, but based NOT on script's source location. Instead JSNS puts every namespace (while technically incorrect you can call it for the purpose of this explanation a "module") in an addressable tree in the memory at runtime. The namespace "modules" can be then accessed at any time by their namespace address.
+
+The main purpose of JSNS is to provide manageable in-memory structure for organizing the scripts (in browser page, node program etc.) separated and fully independent of their origin/source location. This is a very simple approach which has its positive sides that remained almost entirely overlooked as the effort for simulating and later implementing Javascript modules got under way in the 2005-2020 period. The emphasis on source location based imports and especially the ahead of time resolution of such imports gradually made most Javascript developers to accept it as "the only way" totally ignoring all other alternatives. The namespace approach has certain resemblance with the way assemblies/packages build the code base in C# and Java. JSNS does not do much more than provide a very simple method to organize loaded Javascript code in somewhat similar manner inside the memory of the running host (page, application etc.), which in turn makes possible to think in more C# or Java inspired manner about it.
+
+The consequences of usage of JSNS or another similar technique makes it possible to exploit the capabilities of Javascript to implement inheritance-like and other OOP techniques in a way that also resembles better the corresponding/similar techniques in languages like C# and Java. Decoupling the loading from the in-memory organization actually makes things simpler - only the in-memory registration matters when you need access to some code, it can be loaded into memory in a number of different ways, but only its final registration has to be known.
+
+Downsides: As mentioned above the main developments around Javascript have been driven by the idea that became Javascript modules in Javascript 6 and later. All of the most popular techniques simulated similar behavior before that happened and the overwhelming majority of existing tools are also built to follow the Javascript modules specifications or concept at least. This makes adaptation of existing tools for usage with JSNS (or any similar creation) more difficult and usually requires from developers who want to do that to go deeper and rewrite the surface level of such tools (e.g. how they resolve imports for instance). The tooling is not subject of this document, this note is here just to warn Javascript developers that JSNS is one of the many attempts to look at Javascript usage in a little different way from the mainstream, which means they have to pay special attention to the tooling and not expect the mainstream toolsets to "just work" for JSNS.
+
 ## jsns syntax
 
 The JSNS is typically accessible through the global variable `jsns`, with the following methods available on it:
@@ -7,6 +17,7 @@ The JSNS is typically accessible through the global variable `jsns`, with the fo
 ```Javascript
     jsns.namespace(ns_path) // ns_manager | undefined
     jsns.lasterror() // string | null
+    jsns.version() // array
 ```
 
 ### **jsns.namespace(ns_path)**
@@ -103,3 +114,71 @@ Obviously using `ns_manager.codefile` **manually** with too many imports will co
 All namespace creation methods can be called only on a ns_manager obtained from an existing namespace which is not yet `sealed` (see more about namespace sealing below). _In version 1.0.0 there is no option to create sub-namespaces in sealed ones, but this may change in further versions, check if this documentation matches the version you are using_. The access level of the namespace does not matter - i.e. sub-namespaces can be created even in private ones, because the access level controls only how a namespace can be imported.
 
 Another important thing about creating namespaces is the option to join existing ones. All the methods assume this option or at least (ns_manager.create) allow you to specify it as a boolean parameter. What it means that is that when you have this option and try to create an existing namespace, the operation will succeed if it is not sealed and have the same access level, of course.
+
+### ns_manager.create(name, join, access)
+
+Creates a new namespace inside the one for which `ns_manager` has been obtained.
+
+Example:
+
+```Javascript
+
+var ns = jsns.namespace("$.com.myname").create("newnamespace", true, "public");
+// ns is a ns_manager for the newnamespace and can be used to add code for instance
+ns.code(function(_import, sys, _export) {
+    // Some code
+});
+```
+
+> `name` - string, the name of the new namespace to create under the current. This name cannot contain dots, namespaces can be created only as immediate children. If one needs to create deeper namespace (e.g. "$.com.myname.ns1.ns2.ns3" where ns1, ns2 and ns3 do not exist initially), the namespaces in path must be created one by one. This is necessary, because JSNS cannot assume/guess what access level they must have.
+
+> `join` - optional boolean parameter which if passed and `true` will instruct the method to join the existing namespace if the namespace specified by the `name` argument already exists and is not sealed and with the same access level the access argument specifies (see the details about the next argument).
+
+> `access` - optional, string. Can have one of the following values: `"public"`, `"protected"`, `"private"`. If omitted the behavior of the method will be like this:
+if the namespace does not exist and it is created (not joined) it will be created as `public`, if the namesapce exists and `join` is true, it will be just joined and its access level will not be changed. Obviously omitting this argument is in most cases undesirable, but sometimes it is exactly what is needed, when some code has to be added to an existing namespace without even needing to know the namespace's access restrictions.
+
+This is the main method for namespace creation, having all the possible arguments that define the possible behavior variations. For better readability there are a few other method, most calling `create` internally that reflect what a programmer would want in certain situations and it is recommended to prefer them instead of the `create` method.
+
+### ns_manager.join(name)
+
+Joins an existing namespace. Returns ns_manager for the joined namespace or null if the namespace cannot be joined or does not exist.
+
+> `name` - string, the name of the namespace to join.
+
+Example: 
+
+```Javascript
+// Somewhere:
+jsns.namespace("$").public("com").public("myname").public("mynamespace");
+// Later:
+var ns = jsns.namespace("$.com.myname").join("mynamespace");
+// mynamespace already exists under $.com.myname at this point. Assuming it was not sealed we can join it and add code into it or/and seal it.
+```
+
+### ns_manager.public(name)
+
+Creates a new namespace with public access or joins it if it already exists and also has public access. If the namespace exists, but has different access level, the method will fail and return `null`.
+
+> `name` - string, the name of the namespace to create/join.
+
+### ns_manager.protected(name)
+
+Like public above, but creates/joins a namespace with `"protected"` access level
+
+### ns_manager.private(name)
+
+Like public above, but creates/joins a namespace with `"private"` access level
+
+### ns_manager.import()
+
+Imports the namespace represented by the ns_manager instance. The import method creates and object filled with all the exports of the namespace and returns it. The namespace has to be public. Other access levels are not supported by this method, because it can be called from anywhere, which makes it impossible to corelate that namespace to a calling namespace and correctly decide if a protected namespace is requested correctly. The import method can be invoked by any code, even global Javascript code that does not reside in any namespace.
+
+```Javascript
+var ns = jsns.namespace("$.com.myname.somenamespace").import();
+```
+
+In the example above the code can be anywhere and after that point through the ns variable any export from somenamespace can be invoked. E.g. if there is an export my func ns.myfunc() can be called.
+
+### ns_manager.ref(exportname)
+
+Similarly to import method this one enables to get hold on a single 
